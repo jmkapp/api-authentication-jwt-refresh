@@ -1,4 +1,5 @@
-﻿using Amazon.DynamoDBv2;
+﻿using System.Globalization;
+using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using AuthenticationApi.Database;
 using AuthenticationApi.Model;
@@ -35,7 +36,10 @@ namespace AuthenticationApi.Repositories
                 {
                     UserName = fields["UserName"].S,
                     PasswordHash = fields["Password"].S,
-                    Permissions = ParsePermissions(fields["Permissions"].NS)
+                    Permissions = ParsePermissions(fields["Permissions"].NS),
+                    RefreshToken = fields["RefreshToken"].M["Token"].S,
+                    RefreshTokenCreated = DateTime.Parse(fields["RefreshToken"].M["Created"].S),
+                    RefreshTokenExpiry = DateTime.Parse(fields["RefreshToken"].M["Expiry"].S)
                 };
             }
 
@@ -49,6 +53,13 @@ namespace AuthenticationApi.Repositories
 
         public async Task<bool> Add(User newUser)
         {
+            Dictionary<string, AttributeValue> refreshToken = new Dictionary<string, AttributeValue>()
+            {
+                { "Token", new AttributeValue { S = newUser.RefreshToken == null ? string.Empty : newUser.RefreshToken } },
+                { "Created", new AttributeValue { S = newUser.RefreshTokenCreated == null ? DateTime.MinValue.ToString(CultureInfo.CurrentCulture) : newUser.RefreshTokenCreated.ToString(CultureInfo.CurrentCulture) } },
+                { "Expiry", new AttributeValue { S = newUser.RefreshTokenExpiry == null ? DateTime.MinValue.ToString(CultureInfo.CurrentCulture) : newUser.RefreshTokenExpiry.ToString(CultureInfo.CurrentCulture) } }
+            };
+
             PutItemRequest request = new PutItemRequest
             {
                 TableName = _tableName,
@@ -56,7 +67,8 @@ namespace AuthenticationApi.Repositories
                 {
                     { "UserName", new AttributeValue { S = newUser.UserName } },
                     { "Password", new AttributeValue { S = newUser.PasswordHash } },
-                    { "Permissions", new AttributeValue { NS = newUser.Permissions.Select(p => (int)p).Select(p => p.ToString()).ToList() } }
+                    { "Permissions", new AttributeValue { NS = newUser.Permissions.Select(p => (int)p).Select(p => p.ToString()).ToList() } },
+                    { "RefreshToken", new AttributeValue { M = refreshToken } }
                 },
                 ConditionExpression = "attribute_not_exists(UserName)"
             };
@@ -108,7 +120,7 @@ namespace AuthenticationApi.Repositories
                 {
                     { "UserName", new AttributeValue { S = userName } }
                 },
-                ExpressionAttributeNames = new Dictionary<string, string>()
+                ExpressionAttributeNames = new Dictionary<string, string>
                 {
                     { "#P", "Permissions" }
                 },
@@ -120,6 +132,36 @@ namespace AuthenticationApi.Repositories
             };
 
            UpdateItemResponse? response =  await _databaseClient.UpdateItemAsync(request);
+        }
+
+        public async Task SetRefreshToken(string userName, RefreshToken refreshToken)
+        {
+            Dictionary<string, AttributeValue> newRefreshToken = new Dictionary<string, AttributeValue>()
+            {
+                { "Token", new AttributeValue { S = refreshToken.Token == null ? string.Empty : refreshToken.Token } },
+                { "Created", new AttributeValue { S = refreshToken.Created == null ? DateTime.MinValue.ToString(CultureInfo.CurrentCulture) : refreshToken.Created.ToString(CultureInfo.CurrentCulture) } },
+                { "Expiry", new AttributeValue { S = refreshToken.Expiry == null ? DateTime.MinValue.ToString(CultureInfo.CurrentCulture) : refreshToken.Expiry.ToString(CultureInfo.CurrentCulture) } }
+            };
+
+            UpdateItemRequest request = new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = new Dictionary<string, AttributeValue>
+                {
+                    { "UserName", new AttributeValue { S = userName } }
+                },
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#T", "RefreshToken" }
+                },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":token", new AttributeValue { M = newRefreshToken } }
+                },
+                UpdateExpression = "SET #T = :token"
+            };
+
+            UpdateItemResponse? response = await _databaseClient.UpdateItemAsync(request);
         }
     }
 }

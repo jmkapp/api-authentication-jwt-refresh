@@ -7,7 +7,9 @@ namespace AuthenticationApi.Services
         Task<User> Get(string userName);
         Task<bool> Add(string userName, string password);
         Task <bool> Delete(string userName);
-        Task<bool> VerifyPassword(User user, string password);
         Task UpdatePermissions(string userName, List<Permission> permissions);
+        Task SetRefreshToken(string userName, RefreshToken refreshToken);
+        Task<AuthenticationResult> RefreshToken(string jwtToken, string refreshToken);
+        Task<AuthenticationResult> Authenticate(string userName, string password);
     }
 }

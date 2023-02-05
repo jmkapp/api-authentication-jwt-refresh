@@ -1,11 +1,7 @@
-﻿using System.IdentityModel.Tokens.Jwt;
-using AuthenticationApi.Model;
+﻿using AuthenticationApi.Model;
 using AuthenticationApi.Services;
 using AuthenticationApi.ViewModel;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.IdentityModel.Tokens;
-using System.Security.Claims;
-using System.Text;
 using Microsoft.AspNetCore.Authorization;
 
 namespace AuthenticationApi.Controllers
@@ -57,7 +53,7 @@ namespace AuthenticationApi.Controllers
             {
                 return await _userService.Add(user.UserName, user.Password);
             }
-            catch (Exception)
+            catch (Exception e)
             {
                 return false;
             }
@@ -107,48 +103,50 @@ namespace AuthenticationApi.Controllers
         [AllowAnonymous]
         public async Task<ActionResult<string>> Login(UserViewModel userModel)
         {
-            User user = await _userService.Get(userModel.UserName);
+            AuthenticationResult result = await _userService.Authenticate(userModel.UserName, userModel.Password);
 
-            if (user == null)
+            if (!result.UserAuthenticated)
             {
                 return BadRequest("Invalid credentials.");
             }
 
-            bool passwordVerified = await _userService.VerifyPassword(user, userModel.Password);
-
-            if (!passwordVerified)
+            CookieOptions cookieOptions = new CookieOptions
             {
-                return BadRequest("Invalid credentials.");
-            }
-
-            string token = CreateToken(user);
-
-            return Ok(token);
-        }
-
-        private string CreateToken(User user)
-        {
-            List<Claim> claims = new List<Claim>
-            {
-                new Claim(ClaimTypes.Name, user.UserName)
+                HttpOnly = true,
+                Expires = result.RefreshToken.Expiry
             };
 
-            foreach (Permission permission in user.Permissions)
+            Response.Cookies.Append("RefreshToken", result.RefreshToken.Token, cookieOptions);
+
+            return Ok(result.JwtToken);
+        }
+
+
+
+        [HttpGet("RefreshToken")]
+        [AllowAnonymous]
+        public async Task<ActionResult<string>> RefreshToken()
+        {
+            string? refreshToken = Request.Cookies["RefreshToken"];
+
+            string jwtToken = Request.Headers.Authorization;
+
+            AuthenticationResult result = await _userService.RefreshToken(jwtToken, refreshToken);
+
+            if (!result.UserAuthenticated)
             {
-                claims.Add(new Claim(ClaimTypes.Role, _permissions[permission]));
+                return BadRequest("Invalid credentials.");
             }
 
-            SymmetricSecurityKey key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
+            CookieOptions cookieOptions = new CookieOptions
+            {
+                HttpOnly = true,
+                Expires = result.RefreshToken.Expiry
+            };
 
-            SigningCredentials creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha512Signature);
+            Response.Cookies.Append("RefreshToken", result.RefreshToken.Token, cookieOptions);
 
-            JwtSecurityToken token = new JwtSecurityToken(
-                claims: claims,
-                signingCredentials: creds);
-
-            string jwt = new JwtSecurityTokenHandler().WriteToken(token);
-
-            return jwt;
+            return Ok(result.JwtToken);
         }
     }
 }
