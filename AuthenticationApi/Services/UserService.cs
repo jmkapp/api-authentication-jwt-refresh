@@ -14,10 +14,7 @@ namespace AuthenticationApi.Services
         private readonly IConfiguration _configuration;
         private readonly IUserRepository _userRepository;
         private readonly TokenValidationParameters _tokenValidationParameters;
-        private readonly Dictionary<Permission, string> _permissions;
         private readonly string _jwtKey;
-        private readonly TimeSpan _jwtExpiry;
-        private readonly TimeSpan _refreshTokenExpiry;
 
         public UserService(IConfiguration configuration, IUserRepository userRepository, TokenValidationParameters tokenValidationParameters)
         {
@@ -26,21 +23,7 @@ namespace AuthenticationApi.Services
             _tokenValidationParameters = tokenValidationParameters.Clone();
             _tokenValidationParameters.ValidateLifetime = false;
 
-            _permissions = new Dictionary<Permission, string>
-            {
-                { Permission.GetUser, "GetUser" },
-                { Permission.AddUser, "AddUser" },
-                { Permission.UpdateUser, "UpdateUser" },
-                { Permission.DeleteUser, "DeleteUser" },
-                { Permission.UpdatePermission, "UpdatePermission" }
-            };
             _jwtKey = _configuration["Jwt:Key"];
-
-            _jwtExpiry = new TimeSpan(Int32.Parse(_configuration["JwtTokenExpiry:Days"]), Int32.Parse(_configuration["JwtTokenExpiry:Hours"]),
-                Int32.Parse(_configuration["JwtTokenExpiry:Minutes"]), Int32.Parse(_configuration["JwtTokenExpiry:Seconds"]));
-
-            _refreshTokenExpiry = new TimeSpan(Int32.Parse(_configuration["RefreshTokenExpiry:Days"]), Int32.Parse(_configuration["RefreshTokenExpiry:Hours"]),
-                Int32.Parse(_configuration["RefreshTokenExpiry:Minutes"]), Int32.Parse(_configuration["RefreshTokenExpiry:Seconds"]));
         }
 
         public async Task<User> Get(string userName)
@@ -73,14 +56,9 @@ namespace AuthenticationApi.Services
             return verifiedResult == PasswordVerificationResult.Success;
         }
 
-        public async Task UpdatePermissions(string userName, List<Permission> permissions)
+        public async Task UpdatePermissions(string userName, List<string> permissions)
         {
-            await _userRepository.UpdatePermissions(userName, permissions);
-        }
-
-        public async Task SetRefreshToken(string userName, RefreshToken refreshToken)
-        {
-            await _userRepository.SetRefreshToken(userName, refreshToken);
+            await _userRepository.UpdatePermissions(userName, new Permissions().GetPermissions(permissions));
         }
 
         public async Task<AuthenticationResult> Authenticate(string userName, string password)
@@ -181,19 +159,19 @@ namespace AuthenticationApi.Services
                 new Claim(ClaimTypes.Name, user.UserName)
             };
 
-            foreach (Permission permission in user.Permissions)
-            {
-                claims.Add(new Claim(ClaimTypes.Role, _permissions[permission]));
-            }
+            claims.AddRange(new Permissions().GetPermissionNames(user.Permissions).Select(permission => new Claim(ClaimTypes.Role, permission)));
 
             SymmetricSecurityKey key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtKey));
 
             SigningCredentials creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha512Signature);
 
+            TimeSpan jwtExpiry = new TimeSpan(Int32.Parse(_configuration["JwtTokenExpiry:Days"]), Int32.Parse(_configuration["JwtTokenExpiry:Hours"]),
+                Int32.Parse(_configuration["JwtTokenExpiry:Minutes"]), Int32.Parse(_configuration["JwtTokenExpiry:Seconds"]));
+
             JwtSecurityToken token = new JwtSecurityToken(
                 claims: claims,
                 signingCredentials: creds,
-                expires: DateTime.Now.Add(_jwtExpiry));
+                expires: DateTime.Now.Add(jwtExpiry));
 
             string jwt = new JwtSecurityTokenHandler().WriteToken(token);
 
@@ -202,10 +180,13 @@ namespace AuthenticationApi.Services
 
         private RefreshToken GenerateRefreshToken()
         {
+            TimeSpan refreshTokenExpiry = new TimeSpan(Int32.Parse(_configuration["RefreshTokenExpiry:Days"]), Int32.Parse(_configuration["RefreshTokenExpiry:Hours"]),
+                Int32.Parse(_configuration["RefreshTokenExpiry:Minutes"]), Int32.Parse(_configuration["RefreshTokenExpiry:Seconds"]));
+
             RefreshToken refreshToken = new RefreshToken()
             {
                 Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)),
-                Expiry = DateTime.Now.Add(_refreshTokenExpiry),
+                Expiry = DateTime.Now.Add(refreshTokenExpiry),
                 Created = DateTime.Now
             };
 

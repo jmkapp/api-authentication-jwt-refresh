@@ -13,20 +13,11 @@ namespace AuthenticationApi.Controllers
     {
         private readonly IConfiguration _configuration;
         private readonly IUserService _userService;
-        private readonly Dictionary<Permission, string> _permissions;
 
         public UserController(IConfiguration configuration, IUserService userService)
         {
             _configuration = configuration;
             _userService = userService;
-            _permissions = new Dictionary<Permission, string>
-            {
-                { Model.Permission.GetUser, "GetUser" },
-                { Model.Permission.AddUser, "AddUser" },
-                { Model.Permission.UpdateUser, "UpdateUser" },
-                { Model.Permission.DeleteUser, "DeleteUser" },
-                { Model.Permission.UpdatePermission, "UpdatePermission" }
-            };
         }
 
         [HttpGet("{userName}")]
@@ -39,7 +30,7 @@ namespace AuthenticationApi.Controllers
             {
                 UserName = user.UserName != null ? user.UserName : string.Empty,
                 Password = string.Empty,
-                Permissions = user.Permissions.Select(permissionValue => _permissions[permissionValue]).ToList()
+                Permissions = new Permissions().GetPermissionNames(user.Permissions)
             };
 
             return userViewModel;
@@ -82,19 +73,7 @@ namespace AuthenticationApi.Controllers
                 return BadRequest("Invalid username.");
             }
 
-            List<Permission> permissionList = new List<Permission>();
-
-            foreach (string permission in permissions.Permissions)
-            {
-                List<KeyValuePair<Permission, string>> permissionEnumList = _permissions.Where(p => p.Value == permission).Take(1).ToList();
-
-                if (permissionEnumList.Any())
-                {
-                    permissionList.Add(permissionEnumList[0].Key);
-                }
-            }
-
-            await _userService.UpdatePermissions(permissions.UserName, permissionList);
+            await _userService.UpdatePermissions(permissions.UserName, permissions.Permissions);
 
             return Ok();
         }
