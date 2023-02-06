@@ -20,10 +20,24 @@ namespace AuthenticationApi
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen();
 
+            var tokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = false,
+                ValidIssuer = builder.Configuration["Jwt:Issuer"],
+                ValidateAudience = false,
+                ValidAudience = builder.Configuration["Jwt:Audience"],
+                ValidateLifetime = true,
+                RequireExpirationTime = true,
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey =
+                    new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"])),
+            };
+
             builder.Services.AddSingleton<IDatabaseClient, DynamoDbClient>();
             builder.Services.AddScoped<IUserService, UserService>();
             builder.Services.AddScoped<IUserRepository, UserRepository>();
-
+            builder.Services.AddSingleton(tokenValidationParameters);
+            
             builder.Services.AddAuthentication(auth =>
             {
                 auth.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -32,17 +46,7 @@ namespace AuthenticationApi
             }).AddJwtBearer(options =>
                 {
                     options.SaveToken = true;
-                    options.TokenValidationParameters = new TokenValidationParameters
-                    {
-                        ValidateIssuer = false,
-                        ValidIssuer = builder.Configuration["Jwt:Issuer"],
-                        ValidateAudience = false,
-                        ValidAudience = builder.Configuration["Jwt:Audience"],
-                        ValidateLifetime = false,
-                        ValidateIssuerSigningKey = true,
-                        IssuerSigningKey =
-                            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"])),
-                    };
+                    options.TokenValidationParameters = tokenValidationParameters;
                 }
             );
 
